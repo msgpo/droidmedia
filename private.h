@@ -27,11 +27,14 @@
 #else
 #include <media/stagefright/MediaSource.h>
 #endif
+#include "droidmediabuffer.h"
 #include "droidmediacamera.h"
 #include "droidmediacodec.h"
 #if ANDROID_MAJOR >=5
 #include <media/stagefright/foundation/ALooper.h>
 #endif
+
+struct _DroidMediaBufferQueue;
 
 class DroidMediaBufferQueueListener :
 #if (ANDROID_MAJOR == 4 && ANDROID_MINOR < 4)
@@ -40,10 +43,11 @@ public android::BufferQueue::ConsumerListener {
 	public android::BufferQueue::ProxyConsumerListener {
 #endif
 public:
-  DroidMediaBufferQueueListener();
+  DroidMediaBufferQueueListener(_DroidMediaBufferQueue *queue);
+  ~DroidMediaBufferQueueListener();
+
   void onFrameAvailable();
   void onBuffersReleased();
-  void setCallbacks(DroidMediaBufferQueueCallbacks *cb, void *data);
 
 #if ANDROID_MAJOR >= 5
   void onFrameAvailable(const android::BufferItem&) { onFrameAvailable(); }
@@ -51,10 +55,14 @@ public:
 #endif
 
 private:
-  DroidMediaBufferQueueCallbacks m_cb;
-  void *m_data;
+  android::wp<_DroidMediaBufferQueue> m_queue;
+};
 
-  android::Mutex m_lock;
+class DroidMediaBufferItem : public DroidMediaBufferItem {
+public:
+  DroidMediaBufferItem() : droidBuffer(nullptr) {}
+
+  DroidMediaBuffer *droidBuffer;
 };
 
 struct _DroidMediaBufferQueue : public android::RefBase {
@@ -70,13 +78,16 @@ public:
 
   int releaseMediaBuffer(DroidMediaBuffer *buffer, EGLDisplay dpy, EGLSyncKHR fence);
 
-  DroidMediaBuffer *acquireMediaBuffer(DroidMediaBufferCallbacks *cb);
-
   void setCallbacks(DroidMediaBufferQueueCallbacks *cb, void *data);
 
-  bool acquireAndRelease(DroidMediaBufferInfo *info);
-
 private:
+  friend class DroidMediaBufferQueueListener;
+
+  void frameAvailable();
+  void buffersReleased();
+
+  int releaseMediaBuffer(int index, EGLDisplay dpy, EGLSyncKHR fence);
+
 #if ANDROID_MAJOR >= 5
   android::sp<android::IGraphicBufferProducer> m_producer;
   android::sp<android::IGraphicBufferConsumer> m_queue;
@@ -84,13 +95,14 @@ private:
   android::sp<android::BufferQueue> m_queue;
 #endif
 
-#if ANDROID_MAJOR >= 6
-  android::BufferItem m_slots[android::BufferQueue::NUM_BUFFER_SLOTS];
-#else
-  android::BufferQueue::BufferItem m_slots[android::BufferQueue::NUM_BUFFER_SLOTS];
-#endif
+  DroidMediaBufferItem m_slots[android::BufferQueue::NUM_BUFFER_SLOTS];
 
   android::sp<DroidMediaBufferQueueListener> m_listener;
+
+  DroidMediaBufferQueueCallbacks m_cb;
+  void *m_data;
+
+  android::Mutex m_lock;
 };
 
 android::sp<android::Camera> droid_media_camera_get_camera(DroidMediaCamera *camera);
